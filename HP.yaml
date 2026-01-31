@@ -1,9 +1,9 @@
 diff --git a/template_hp_m426fdw_snmp.yaml b/template_hp_m426fdw_snmp.yaml
 new file mode 100644
-index 0000000000000000000000000000000000000000..e1d49845d038de867dbdd1461b91f223943161e1
+index 0000000000000000000000000000000000000000..15205ddcae49c744644499ef9cd46fcc66dcf5c3
 --- /dev/null
 +++ b/template_hp_m426fdw_snmp.yaml
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,151 @@
 +zabbix_export:
 +  version: '6.0'
 +  date: '2025-02-14T00:00:00Z'
@@ -14,7 +14,7 @@ index 0000000000000000000000000000000000000000..e1d49845d038de867dbdd1461b91f223
 +      name: 'HP LaserJet M426fdw SNMP'
 +      description: |
 +        Template for HP LaserJet M426fdw via SNMP.
-+        Provides availability, toner levels, printer status, page count, and alert text.
++        Provides availability, toner levels, printer status, page count, and alert data.
 +      groups:
 +        - name: Printers
 +      macros:
@@ -82,8 +82,14 @@ index 0000000000000000000000000000000000000000..e1d49845d038de867dbdd1461b91f223
 +          key: 'hp.printer.supplies.discovery'
 +          delay: 1h
 +          description: 'Discovers marker supplies from Printer-MIB.'
++          filter:
++            evaltype: AND
++            conditions:
++              - macro: '{#SUPPLY_CLASS}'
++                value: '3'
++                operator: '='
 +          item_prototypes:
-+            - name: 'Toner level: {#SUPPLY_DESC}'
++            - name: 'Toner level (raw): {#SUPPLY_DESC}'
 +              type: SNMP_AGENT
 +              snmp_oid: '1.3.6.1.2.1.43.11.1.1.9.1.{#SNMPINDEX}'
 +              key: 'hp.printer.supplies.level[{#SNMPINDEX}]'
@@ -91,11 +97,7 @@ index 0000000000000000000000000000000000000000..e1d49845d038de867dbdd1461b91f223
 +              history: 30d
 +              trends: 365d
 +              value_type: INTEGER
-+              units: '%'
 +              description: 'prtMarkerSuppliesLevel (current level).'
-+              preprocessing:
-+                - type: SIMPLE_CHANGE
-+                  parameters: []
 +            - name: 'Toner max capacity: {#SUPPLY_DESC}'
 +              type: SNMP_AGENT
 +              snmp_oid: '1.3.6.1.2.1.43.11.1.1.8.1.{#SNMPINDEX}'
@@ -105,14 +107,45 @@ index 0000000000000000000000000000000000000000..e1d49845d038de867dbdd1461b91f223
 +              trends: 365d
 +              value_type: INTEGER
 +              description: 'prtMarkerSuppliesMaxCapacity (maximum level).'
++            - name: 'Toner level: {#SUPPLY_DESC}'
++              type: CALCULATED
++              key: 'hp.printer.supplies.percent[{#SNMPINDEX}]'
++              delay: 15m
++              history: 30d
++              trends: 365d
++              value_type: FLOAT
++              units: '%'
++              params: |
++                last(//hp.printer.supplies.level[{#SNMPINDEX}])
++                / last(//hp.printer.supplies.max[{#SNMPINDEX}]) * 100
++              description: 'Calculated toner percentage based on current and max capacity.'
 +          trigger_prototypes:
 +            - expression: |
-+                last(/HP LaserJet M426fdw SNMP/hp.printer.supplies.level[{#SNMPINDEX}])
-+                / last(/HP LaserJet M426fdw SNMP/hp.printer.supplies.max[{#SNMPINDEX}])
-+                * 100 < {$HP_TONER_LOW}
++                last(/HP LaserJet M426fdw SNMP/hp.printer.supplies.percent[{#SNMPINDEX}]) < {$HP_TONER_LOW}
 +              name: 'Low toner: {#SUPPLY_DESC} (<{$HP_TONER_LOW}%)'
 +              priority: WARNING
 +              description: 'Toner level below threshold.'
++        - name: 'Printer alerts discovery'
++          type: SNMP_AGENT
++          snmp_oid: 'discovery[{#ALERT_DESC},1.3.6.1.2.1.43.18.1.1.8.1]'
++          key: 'hp.printer.alerts.discovery'
++          delay: 5m
++          description: 'Discovers active alerts from Printer-MIB alert table.'
++          item_prototypes:
++            - name: 'Alert severity: {#ALERT_DESC}'
++              type: SNMP_AGENT
++              snmp_oid: '1.3.6.1.2.1.43.18.1.1.2.1.{#SNMPINDEX}'
++              key: 'hp.printer.alert.severity[{#SNMPINDEX}]'
++              delay: 5m
++              history: 7d
++              trends: 90d
++              value_type: UNSIGNED
++              description: 'prtAlertSeverity (1=other,2=unknown,3=critical,4=warning).'
++          trigger_prototypes:
++            - expression: 'last(/HP LaserJet M426fdw SNMP/hp.printer.alert.severity[{#SNMPINDEX}])>=3'
++              name: 'Printer alert: {#ALERT_DESC}'
++              priority: HIGH
++              description: 'Printer reports a warning/critical alert.'
 +      triggers:
 +        - expression: 'max(/HP LaserJet M426fdw SNMP/icmpping,5m)=0'
 +          name: 'Printer is unreachable'
